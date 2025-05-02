@@ -1,0 +1,249 @@
+[10:27 am, 2/5/2025] Shivam: sticklo/
+├── assets/
+│   └── table.glb               # Your 3D table model
+├── index.html                  # Main website page
+├── style.css                   # Styles
+├── main.js                     # All logic & interactivity
+├── server.py                   # Python backend (Stripe)
+├── requirements.txt            # Python packages
+[10:27 am, 2/5/2025] Shivam: <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sticklo - 3D Sticker Shop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Welcome to Sticklo!</h1>
+
+  <input type="file" id="upload" accept="image/*" />
+  <button id="buy-button">Pay with Stripe</button>
+  <button id="cod-button">Cash on Delivery</button>
+  <button id="save-btn">Save View</button>
+
+  <div id="cod-form" style="display: none;">
+    <input type="text" id="cod-name" placeholder="Your Name" required>
+    <input type="text" id="cod-address" placeholder="Shipping Address" required>
+    <button onclick="submitCOD()">Place COD Order</button>
+  </div>
+
+  <canvas id="three-canvas"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
+  <script src="main.js"></script>
+</body>
+</html>
+[10:27 am, 2/5/2025] Shivam: body {
+  margin: 0;
+  background: #111;
+  font-family: Arial, sans-serif;
+  color: white;
+  overflow: hidden;
+}
+
+h1 {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  font-size: 2rem;
+  color: #ff6347;
+}
+
+#upload,
+#buy-button,
+#cod-button,
+#save-btn {
+  position: absolute;
+  left: 10px;
+  z-index: 10;
+  padding: 8px;
+  font-size: 14px;
+  background: #444;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+#upload { top: 60px; }
+#buy-button { top: 100px; }
+#cod-button { top: 140px; }
+#save-btn { top: 180px; }
+
+#cod-form {
+  position: absolute;
+  top: 220px;
+  left: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#cod-form input, #cod-form button {
+  padding: 8px;
+  font-size: 14px;
+}
+
+canvas {
+  display: block;
+}
+[10:28 am, 2/5/2025] Shivam: const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222222);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(2, 2, 3);
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(3, 5, 2);
+scene.add(light);
+
+// Load 3D model
+const loader = new THREE.GLTFLoader();
+loader.load('assets/table.glb', gltf => {
+  gltf.scene.scale.set(1, 1, 1);
+  gltf.scene.position.y = -1;
+  scene.add(gltf.scene);
+});
+
+// Default sticker
+const sticker = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ 
+    map: new THREE.TextureLoader().load('https://via.placeholder.com/512x512.png?text=Sticker'),
+    side: THREE.DoubleSide
+  })
+);
+sticker.position.y = 0.5;
+scene.add(sticker);
+
+// Upload new sticker
+document.getElementById('upload').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => {
+    const img = new Image();
+    img.src = evt.target.result;
+    img.onload = () => {
+      const tex = new THREE.Texture(img);
+      tex.needsUpdate = true;
+      sticker.material.map = tex;
+      sticker.material.needsUpdate = true;
+    };
+  };
+  reader.readAsDataURL(file);
+});
+
+// Drag and drop
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let dragging = false;
+
+window.addEventListener('mousedown', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects([sticker]);
+  if (hits.length) dragging = true;
+});
+
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const point = raycaster.ray.intersectPlane(plane);
+  if (point) sticker.position.set(point.x, 0.5, point.z);
+});
+
+window.addEventListener('mouseup', () => dragging = false);
+
+// Save image
+document.getElementById('save-btn').addEventListener('click', () => {
+  renderer.render(scene, camera);
+  const link = document.createElement('a');
+  link.download = 'sticker_view.png';
+  link.href = renderer.domElement.toDataURL('image/png');
+  link.click();
+});
+
+// Stripe
+document.getElementById('buy-button').addEventListener('click', async () => {
+  const res = await fetch('/create-checkout-session', { method: 'POST' });
+  const data = await res.json();
+  const stripe = Stripe('pk_test_YOUR_PUBLIC_KEY'); // Replace this with your real Stripe key
+  stripe.redirectToCheckout({ sessionId: data.id });
+});
+
+// COD
+document.getElementById('cod-button').addEventListener('click', () => {
+  document.getElementById('cod-form').style.display = 'flex';
+});
+
+function submitCOD() {
+  const name = document.getElementById('cod-name').value.trim();
+  const address = document.getElementById('cod-address').value.trim();
+  if (!name || !address) {
+    alert('Please enter name and address.');
+    return;
+  }
+  alert(COD Order Placed!\nName: ${name}\nAddress: ${address});
+  document.getElementById('cod-form').style.display = 'none';
+  document.getElementById('cod-name').value = '';
+  document.getElementById('cod-address').value = '';
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+[10:28 am, 2/5/2025] Shivam: from flask import Flask, jsonify
+import stripe
+
+app = Flask(_name_)
+stripe.api_key = 'sk_test_YOUR_SECRET_KEY'  # Replace with your Stripe secret key
+
+@app.route('/create-checkout-session', methods=['POST'])
+def create_checkout_session():
+    try:
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': { 'name': 'Custom Sticker' },
+                    'unit_amount': 500,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url='http://localhost:3000/success',
+            cancel_url='http://localhost:3000/',
+        )
+        return jsonify(id=session.id)
+    except Exception as e:
+        return jsonify(error=str(e)), 403
+
+if _name_ == '_main_':
+    app.run(port=3000, debug=True)
+[10:30 am, 2/5/2025] Shivam: flask
+stripe
